@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+
+<configuration>
+
+<!-- Codec specifications -->
+<property>
+  <name>raid.codecs.json</name>
+    <value>[
+{
+"id" : "stair",
+"parity_dir" : "/raidstair",
+"stripe_length" : 11,
+"parity_length" : 9,
+"num_local_group" : 5,
+"num_parity_group" : 1,
+"size_local_group" : 4,
+"local_parity_length" : 1,
+"global_parity_vector" : "(1)",
+"priority" : 200,
+"erasure_code" : "org.apache.hadoop.raid.StairCode",
+"description" : "Stair code",
+"simulate_block_fix": true,
+"dir_raid" : true
+},
+{
+"id" : "jerasure",
+"parity_dir" : "/jerasure",
+"stripe_length" : 3,
+"parity_length" : 2,
+"priority" : 100,
+"erasure_code" : "org.apache.hadoop.raid.JerasureCode",
+"description" : "Jerasure code",
+"simulate_block_fix": false,
+"dir_raid" : true
+}
+]</value>
+  <description>JSon string that contains all Raid codecs</description>
+</property>
+
+</configuration>
