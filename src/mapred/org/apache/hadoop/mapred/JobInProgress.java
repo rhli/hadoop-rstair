@@ -78,7 +78,7 @@ public class JobInProgress extends JobInProgressTraits {
 
   /* added by RH Sep 9th, 2015 begins */
   boolean stairFlag=false;
-  string stairRack;
+  String stairRack;
   /* added by RH Sep 9th, 2015 ends */
 
   JobProfile profile;
@@ -622,10 +622,15 @@ public class JobInProgress extends JobInProgressTraits {
     Map<Node, List<TaskInProgress>> cache =
       new IdentityHashMap<Node, List<TaskInProgress>>(maxLevel);
 
+    /* Added by RH Sep 10th, 2015 begins */
+    ArrayList<Integer> missingIdx = new ArrayList<Integer>();
+    /* Added by RH Sep 10th, 2015 ends */
+
     for (int i = 0; i < splits.length; i++) {
       String[] splitLocations = splits[i].getLocations();
       if (splitLocations.length == 0) {
         nonLocalMaps.add(maps[i]);
+        missingIdx.add(i);
         continue;
       }
 
@@ -657,11 +662,12 @@ public class JobInProgress extends JobInProgressTraits {
     /* Added by RH by Sep 9th begins 
      * decide the rack to run degraded tasks
      */
-    if(stairFlag && nonLocalMaps.size()!=0) {
+    if(stairFlag && missingIdx.size()!=0) {
       NetworkTopology clusterMap = this.jobtracker.getClusterMap();
-      sort(clusterMap.getRacks());
+      Collections.sort(clusterMap.getRacks());
 
       /* get setting */
+      ArrayList<Integer> stairErrVec = new ArrayList<Integer>();
       int stairRow = conf.getInt("hdfs.raid.stair.row",4);
       int stairCol = conf.getInt("hdfs.raid.stair.col",5);
       int stairRowParityNum = conf.getInt("hdfs.raid.stair.rowParityNum",1);
@@ -672,7 +678,7 @@ public class JobInProgress extends JobInProgressTraits {
 
       /* parsing err vec */
       int i;
-      parityLen = 0;
+      int parityLen = 0;
       for (i=0;i<stairColParityNum;i++) {
         stairErrVec.add(stairRow);
         parityLen += stairRow;
@@ -683,7 +689,7 @@ public class JobInProgress extends JobInProgressTraits {
         for (String str : errVec.split(",")){
           stairErrVec.add(stairRowParityNum + Integer.parseInt(str));
           parityLen += (stairRowParityNum + Integer.parseInt(str));
-          i++;
+          i ++;
         }
       }else {
         // single element array
@@ -691,14 +697,12 @@ public class JobInProgress extends JobInProgressTraits {
         parityLen += (stairRowParityNum + Integer.parseInt(errVec));
         i++;
       }
-      LOG.info("RHDEBUG: parityLen=" + parityLen);
       for (;i<stairCol;i++) {
         stairErrVec.add(stairRowParityNum);
         parityLen += (stairRowParityNum);
       }
-      LOG.info("RHDEBUG: parityLen=" + parityLen);
 
-      dataLen = totalLen - parityLen;
+      int dataLen = totalLen - parityLen;
 
       int[] numberParityInRow = new int[stairRow];
       int currPos = stairCol-1;
@@ -707,15 +711,12 @@ public class JobInProgress extends JobInProgressTraits {
         for(int j=0;j<stairErrVec.size();j++) {
           if(stairErrVec.get(j)<=stairRow-1-i) numberParityInRow[i]--;
         }
-        LOG.info("numberParityInRow[" + i + "]=" + numberParityInRow[i]);
       }
-      //LOG.info("RHDEBUG: " + stairErrVec);
 
       int dataCount=0;
       int parityCount=0;
       for (i=0;i<stairRow;i++) {
         for (int j=0;j<stairCol;j++) {
-          //LOG.info("i=" + i + " j=" + j + " dataCount=" + dataCount + " parityCount=" + parityCount);
           if (j < stairCol - numberParityInRow[i]) {
             stripeIdxToRack.set(dataCount ++, j);
           } else {
@@ -724,11 +725,11 @@ public class JobInProgress extends JobInProgressTraits {
         }
       }
 
-      int stripeIndex = nonLocalMaps[0] / dataLen % indexToNode.size();
-      int blkIndexInStripe = nonLocalMaps[0] % dataLen;
+      int stripeIndex = missingIdx.get(0) / dataLen % totalLen;
+      int blkIndexInStripe = missingIdx.get(0) % dataLen;
       int rackId = (stripeIndex % stairCol + stripeIdxToRack.get(blkIndexInStripe) ) % stairCol;
-      stairRack = clusterMap.get(rackId);
-      LOG.info("RHDEBUG: stairRack is " + stairRack);
+      stairRack = clusterMap.getRacks().get(rackId);
+      LOG.info("RHDEBUG: stairRack is " + stairRack + "failed block index is " + missingIdx.get(0));
     }
     /* Added by RH by Sep 9th ends */
     return cache;
@@ -2586,10 +2587,12 @@ public class JobInProgress extends JobInProgressTraits {
     // collection of node at max level in the cache structure
     Collection<Node> nodesAtMaxLevel = jobtracker.getNodesAtMaxLevel();
 
-    // get the node parent at max level
-    // RH: HARDCODE!! de-hardcode after deadline.
-    if(!node.toString().startsWith("/rack1")){
-    //if(!node.toString().startsWith("/somethingwired")){
+    /* Modified by RH Sep 10th, 2015 begins 
+     *  for slaves in the rack of failed nodes: higher priority to degraded task than remote task 
+     *  for slaves in other racks: higher priority for remote tasks than degraded tasks */
+    if(!node.toString().startsWith(stairRack)){
+    /* Modified by RH Sep 10th, 2015 ends */
+      // get the node parent at max level
       Node nodeParentAtMaxLevel =
         (node == null) ? null : JobTracker.getParentNode(node, maxLevel - 1);
 
@@ -2668,7 +2671,6 @@ public class JobInProgress extends JobInProgressTraits {
     }
 
     // 3. Search non-local tips for a new task
-    //if (node.toString().startsWith("/rack1")) {
     //if (true) {
     //  tip = findTaskFromList(nonLocalMaps, tts, numUniqueHosts, false);
     //  if (tip != null) {
