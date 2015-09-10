@@ -46,7 +46,8 @@ II. Installation and Configuration
   to get a feeling and change it according to your cluster topology.
 
   To use R-STAIR code, we assume you have enough racks and enough nodes in each
-  rack.  For example, if you choose to use ???
+  rack.  For example, if you set n=6 and r=5, you should have at least 6 racks
+  and at least 5 nodes per rack.
 
 3. Configure conf/core-site.xml conf/hdfs-site.xml conf/raid.xml   
   according to the instructions in the xml files.
@@ -54,8 +55,14 @@ II. Installation and Configuration
 4. Finishing: 
   Copy the hadoop directory to every machine in the same location.
 
-III. Walk through example
+III. Configuration
 ====
+To change parameters of R-STAIR code, please refer to 
+$HADOOP_HOME/src/contrib/raid/src/java/raid-default.xml as an example.
+
+To make R-STAIR code work properly, please also update corresponding
+configurations in $HADOOP_HOME/conf/hdfs-site.xml for the R-STAIR code
+placement.
 
 Developer's Guide
 =====
@@ -64,14 +71,19 @@ Our modifications can be divided into three parts:
 
 1. Coding implementation 
     R-STAIR is implemented in C++ and integrated with HDFS-RAID through JNI.
+    Find our implementation in src/native/src/org/apache/hadoop/util/stair.c
 2. R-STAIR code placement
     We implement our two-dimension round-robin placement to place data/parity
     blocks to achieve load balance and exploit the locality property of R-STAIR
     codes.  (src/contrib/raid/src/java/org/apache/hadoop/hdfs/server/namenode)
-      - see BlockPlacementStair.java for more detail.
+      - See BlockPlacementPolicyStair.java for more detail.
 3. MapReduce integration
     We explore how to leverage the feature of R-STAIR code to improve MapReduce
     performance.  We modify MapReduce scheduler to integrate 
+      - We mainly modified JobInProgress.java to leverage locality of R-STAIR
+        code for MapReduce jobs.
 
 Change Log
 =====
+Version 1.0.0 (September, 2015): First release. 
+
