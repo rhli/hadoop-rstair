@@ -243,6 +243,15 @@ public class JobTracker extends JobTrackerTraits implements MRConstants,
     return startTracker(conf, generateNewIdentifier());
   }
 
+  /** 
+   * Let JobInProgress get network topology.
+   *
+   * Added by RH Sep 5th, 2015 begins */
+  public NetworkTopology getClusterMap(){
+    return clusterMap;
+  }
+  /* Added by RH Sep 5th, 2015 ends */
+
   public static JobTracker startTracker(JobConf conf, String identifier)
   throws IOException, InterruptedException {
     JobTracker result = null;

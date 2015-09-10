@@ -76,6 +76,11 @@ public class JobInProgress extends JobInProgressTraits {
   static final Log LOG = LogFactory.getLog(JobInProgress.class);
   static final Log countersLog = LogFactory.getLog("Counters");
 
+  /* added by RH Sep 9th, 2015 begins */
+  boolean stairFlag=false;
+  string stairRack;
+  /* added by RH Sep 9th, 2015 ends */
+
   JobProfile profile;
   JobStatus status;
   Path jobFile = null;
@@ -444,6 +449,9 @@ public class JobInProgress extends JobInProgressTraits {
     this.speculativeReduceUnfininshedThreshold = conf.getFloat(
         SPECULATIVE_REDUCE_UNFINISHED_THRESHOLD_KEY,
         speculativeReduceUnfininshedThreshold);
+    /* Added by RH Sep 5th, 2015 begins */
+    this.stairFlag = conf.getBoolean("mapred.stair.flag",false);
+    /* Added by RH Sep 5th, 2015 ends */
 
     hasSpeculativeMaps = conf.getMapSpeculativeExecution();
     hasSpeculativeReduces = conf.getReduceSpeculativeExecution();
@@ -617,9 +625,7 @@ public class JobInProgress extends JobInProgressTraits {
     for (int i = 0; i < splits.length; i++) {
       String[] splitLocations = splits[i].getLocations();
       if (splitLocations.length == 0) {
-        LOG.debug("RHDEBUG tip:" + maps[i].getTIPId() + " has split on no node");
         nonLocalMaps.add(maps[i]);
-        LOG.debug("RHDEBUG nonLocalMaps.size()=:" + nonLocalMaps.size());
         continue;
       }
 
@@ -648,6 +654,83 @@ public class JobInProgress extends JobInProgressTraits {
         }
       }
     }
+    /* Added by RH by Sep 9th begins 
+     * decide the rack to run degraded tasks
+     */
+    if(stairFlag && nonLocalMaps.size()!=0) {
+      NetworkTopology clusterMap = this.jobtracker.getClusterMap();
+      sort(clusterMap.getRacks());
+
+      /* get setting */
+      int stairRow = conf.getInt("hdfs.raid.stair.row",4);
+      int stairCol = conf.getInt("hdfs.raid.stair.col",5);
+      int stairRowParityNum = conf.getInt("hdfs.raid.stair.rowParityNum",1);
+      int stairColParityNum = conf.getInt("hdfs.raid.stair.colParityNum",1);
+
+      int totalLen = stairRow * stairCol;
+      ArrayList<Integer> stripeIdxToRack = new ArrayList<Integer>(Collections.nCopies(totalLen,0));
+
+      /* parsing err vec */
+      int i;
+      parityLen = 0;
+      for (i=0;i<stairColParityNum;i++) {
+        stairErrVec.add(stairRow);
+        parityLen += stairRow;
+      }
+      LOG.info("RHDEBUG: parityLen=" + parityLen);
+      String errVec = conf.get("hdfs.raid.stair.errVec","1");
+      if (errVec.contains(",")) {
+        for (String str : errVec.split(",")){
+          stairErrVec.add(stairRowParityNum + Integer.parseInt(str));
+          parityLen += (stairRowParityNum + Integer.parseInt(str));
+          i++;
+        }
+      }else {
+        // single element array
+        stairErrVec.add(stairRowParityNum + Integer.parseInt(errVec));
+        parityLen += (stairRowParityNum + Integer.parseInt(errVec));
+        i++;
+      }
+      LOG.info("RHDEBUG: parityLen=" + parityLen);
+      for (;i<stairCol;i++) {
+        stairErrVec.add(stairRowParityNum);
+        parityLen += (stairRowParityNum);
+      }
+      LOG.info("RHDEBUG: parityLen=" + parityLen);
+
+      dataLen = totalLen - parityLen;
+
+      int[] numberParityInRow = new int[stairRow];
+      int currPos = stairCol-1;
+      for (i=stairRow-1;i>=0;i--) {
+        numberParityInRow[i]=stairCol;
+        for(int j=0;j<stairErrVec.size();j++) {
+          if(stairErrVec.get(j)<=stairRow-1-i) numberParityInRow[i]--;
+        }
+        LOG.info("numberParityInRow[" + i + "]=" + numberParityInRow[i]);
+      }
+      //LOG.info("RHDEBUG: " + stairErrVec);
+
+      int dataCount=0;
+      int parityCount=0;
+      for (i=0;i<stairRow;i++) {
+        for (int j=0;j<stairCol;j++) {
+          //LOG.info("i=" + i + " j=" + j + " dataCount=" + dataCount + " parityCount=" + parityCount);
+          if (j < stairCol - numberParityInRow[i]) {
+            stripeIdxToRack.set(dataCount ++, j);
+          } else {
+            stripeIdxToRack.set(dataLen + parityCount ++, j);
+          }
+        }
+      }
+
+      int stripeIndex = nonLocalMaps[0] / dataLen % indexToNode.size();
+      int blkIndexInStripe = nonLocalMaps[0] % dataLen;
+      int rackId = (stripeIndex % stairCol + stripeIdxToRack.get(blkIndexInStripe) ) % stairCol;
+      stairRack = clusterMap.get(rackId);
+      LOG.info("RHDEBUG: stairRack is " + stairRack);
+    }
+    /* Added by RH by Sep 9th ends */
     return cache;
   }
 
@@ -1520,11 +1603,9 @@ public class JobInProgress extends JobInProgressTraits {
       return null;
     }
 
-    LOG.debug("RHDEBUG: obtainNewNonLocalMapTask() checkpoint1 nonLocalMaps.size()" + nonLocalMaps.size());
     int target = findNewMapTask(tts, clusterSize, numUniqueHosts,
                                 NON_LOCAL_CACHE_LEVEL);
     if (target == -1) {
-      LOG.debug("RHDEBUG: obtainNewNonLocalMapTask() checkpoint1.5 target=" + target);
       return null;
     }
 
@@ -2403,14 +2484,12 @@ public class JobInProgress extends JobInProgressTraits {
                                           final int clusterSize,
                                           final int numUniqueHosts,
                                           final int maxCacheLevel) {
-    LOG.debug("RHDEBUG: findNewMapTask(): checkpoint1");
     if (numMapTasks == 0) {
       if(LOG.isDebugEnabled()) {
         LOG.debug("No maps to schedule for " + profile.getJobID());
       }
       return -1;
     }
-    LOG.debug("RHDEBUG: findNewMapTask(): checkpoint2");
 
     String taskTracker = tts.getTrackerName();
     TaskInProgress tip = null;
@@ -2438,7 +2517,6 @@ public class JobInProgress extends JobInProgressTraits {
 
       return -1; //see if a different TIP might work better.
     }
-    LOG.debug("RHDEBUG: findNewMapTask(): checkpoint3");
 
 
     // For scheduling a map task, we have two caches and a list (optional)
@@ -2498,7 +2576,6 @@ public class JobInProgress extends JobInProgressTraits {
         return -1;
       }
     }
-    LOG.debug("RHDEBUG: findNewMapTask(): checkpoint4");
 
     //2. Search breadth-wise across parents at max level for non-running
     //   TIP if
@@ -2589,22 +2666,21 @@ public class JobInProgress extends JobInProgressTraits {
         }
       }
     }
-    LOG.debug("RHDEBUG: findNewMapTask(): checkpoint5");
 
     // 3. Search non-local tips for a new task
     //if (node.toString().startsWith("/rack1")) {
-    if (true) {
-      tip = findTaskFromList(nonLocalMaps, tts, numUniqueHosts, false);
-      if (tip != null) {
-        // Add to the running list
-        scheduleMap(tip);
+    //if (true) {
+    //  tip = findTaskFromList(nonLocalMaps, tts, numUniqueHosts, false);
+    //  if (tip != null) {
+    //    // Add to the running list
+    //    scheduleMap(tip);
 
-        /* Modified by RH Jan 20th 2015 begins */
-        LOG.info("Choosing a non-local task " + tip.getTIPId() + " for " + node);
-        /* Modified by RH Jan 20th 2015 ends */
-        return tip.getIdWithinJob();
-      }
-    }
+    //    /* Modified by RH Jan 20th 2015 begins */
+    //    LOG.info("Choosing a non-local task " + tip.getTIPId() + " for " + node);
+    //    /* Modified by RH Jan 20th 2015 ends */
+    //    return tip.getIdWithinJob();
+    //  }
+    //}
 
     //
     // II) Running TIP :

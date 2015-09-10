@@ -144,7 +144,7 @@ public class BlockPlacementPolicyStair extends BlockPlacementPolicyRaid {
       stairErrVec.add(this.stairRow);
       parityLen += this.stairRow;
     }
-    LOG.info("RHDEBUG: parityLen=" + parityLen);
+    //LOG.info("RHDEBUG: parityLen=" + parityLen);
     String errVec = conf.get("hdfs.raid.stair.errVec","1");
     if (errVec.contains(",")) {
       for (String str : errVec.split(",")){
@@ -158,12 +158,12 @@ public class BlockPlacementPolicyStair extends BlockPlacementPolicyRaid {
       parityLen += (this.stairRowParityNum + Integer.parseInt(errVec));
       i++;
     }
-    LOG.info("RHDEBUG: parityLen=" + parityLen);
+    //LOG.info("RHDEBUG: parityLen=" + parityLen);
     for (;i<this.stairCol;i++) {
       stairErrVec.add(this.stairRowParityNum);
       parityLen += (this.stairRowParityNum);
     }
-    LOG.info("RHDEBUG: parityLen=" + parityLen);
+    //LOG.info("RHDEBUG: parityLen=" + parityLen);
 
     dataLen = totalLen - parityLen;
 
@@ -174,7 +174,7 @@ public class BlockPlacementPolicyStair extends BlockPlacementPolicyRaid {
       for(int j=0;j<stairErrVec.size();j++) {
         if(stairErrVec.get(j)<=stairRow-1-i) numberParityInRow[i]--;
       }
-      LOG.info("numberParityInRow[" + i + "]=" + numberParityInRow[i]);
+      //LOG.info("numberParityInRow[" + i + "]=" + numberParityInRow[i]);
     }
     //LOG.info("RHDEBUG: " + stairErrVec);
 
